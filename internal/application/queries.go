@@ -46,7 +46,10 @@ func (s *Service) BatchDetailFiltered(ctx context.Context, id string, filter Bat
 	var detail BatchDetail
 	err := s.serial.execute(id, func() error {
 		if cached, ok := s.detail.Load(id); ok {
-			return json.Unmarshal(cached.([]byte), &detail)
+			if err := json.Unmarshal(cached.([]byte), &detail); err != nil {
+				return err
+			}
+			return s.applyDetailFilter(&detail, filter)
 		}
 		aggregate, err := s.repo.Load(ctx, id)
 		if err != nil {
@@ -56,19 +59,11 @@ func (s *Service) BatchDetailFiltered(ctx context.Context, id string, filter Bat
 		if err != nil {
 			return err
 		}
-		progress, err := aggregate.Progress(filter.Progress)
-		if err != nil {
-			return err
-		}
-		queue, err := aggregate.RemediationQueue(filter.RemediationOwner, filter.RemediationStatus, filter.DueRisk, s.clock.Now())
-		if err != nil {
-			return err
-		}
 		detail = BatchDetail{
-			Aggregate: aggregate, Matrix: progress.Matrix, Blocking: aggregate.BlockingCells(), Timeline: events,
+			Aggregate: aggregate, Timeline: events,
 			Coverage: aggregate.Coverage(), Histories: aggregate.Histories(),
+			Blocking: aggregate.BlockingCells(),
 			TimelineVerification: audit.VerifyTimeline(id, events, aggregate.Batch.Revision),
-			Progress:             progress, RemediationQueue: queue,
 		}
 		if aggregate.Permit != nil {
 			permits, err := s.repo.Permits(ctx)
@@ -78,6 +73,9 @@ func (s *Service) BatchDetailFiltered(ctx context.Context, id string, filter Bat
 			verification := audit.VerifyAggregatePermit(aggregate, permits)
 			detail.PermitVerification = &verification
 		}
+		if err := s.applyDetailFilter(&detail, filter); err != nil {
+			return err
+		}
 		encoded, err := json.Marshal(detail)
 		if err != nil {
 			return err
@@ -86,6 +84,27 @@ func (s *Service) BatchDetailFiltered(ctx context.Context, id string, filter Bat
 		return nil
 	})
 	return detail, err
+}
+
+// applyDetailFilter re-derives the filter-dependent projections (check matrix,
+// progress view and remediation queue) against the supplied filter so that a
+// cached detail view never leaks a previous request's filter results.
+func (s *Service) applyDetailFilter(detail *BatchDetail, filter BatchDetailFilter) error {
+	if detail.Aggregate == nil {
+		return nil
+	}
+	progress, err := detail.Aggregate.Progress(filter.Progress)
+	if err != nil {
+		return err
+	}
+	queue, err := detail.Aggregate.RemediationQueue(filter.RemediationOwner, filter.RemediationStatus, filter.DueRisk, s.clock.Now())
+	if err != nil {
+		return err
+	}
+	detail.Matrix = progress.Matrix
+	detail.Progress = progress
+	detail.RemediationQueue = queue
+	return nil
 }
 
 func (s *Service) PreflightPlan(ctx context.Context, batchID string, definitions []domain.CheckDefinition) (domain.PlanPreflight, error) {
