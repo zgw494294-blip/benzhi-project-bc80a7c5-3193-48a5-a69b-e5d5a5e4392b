@@ -101,14 +101,18 @@ func (s *Service) mutate(ctx context.Context, meta Meta, action string, fn mutat
 			output = *replay
 			return nil
 		}
-		aggregate, err := s.repo.Load(ctx, meta.BatchID)
+		loaded, err := s.repo.Load(ctx, meta.BatchID)
 		if err != nil {
 			return err
 		}
-		if err := aggregate.RequireRevision(meta.Revision); err != nil {
+		if err := loaded.RequireRevision(meta.Revision); err != nil {
 			return err
 		}
-		expected := aggregate.Batch.Revision
+		expected := loaded.Batch.Revision
+		aggregate, err := domain.CloneAggregate(loaded)
+		if err != nil {
+			return err
+		}
 		resourceID, facts, err := fn(aggregate, s.clock.Now())
 		if err != nil {
 			return err
@@ -210,14 +214,18 @@ func (s *Service) RecordResults(ctx context.Context, command RecordResultsComman
 			output = *replay
 			return nil
 		}
-		a, err := s.repo.Load(ctx, command.BatchID)
+		loaded, err := s.repo.Load(ctx, command.BatchID)
 		if err != nil {
 			return err
 		}
-		if err := a.RequireRevision(command.Revision); err != nil {
+		if err := loaded.RequireRevision(command.Revision); err != nil {
 			return err
 		}
-		expected := a.Batch.Revision
+		expected := loaded.Batch.Revision
+		a, err := domain.CloneAggregate(loaded)
+		if err != nil {
+			return err
+		}
 		items := append([]domain.CheckResult(nil), command.Results...)
 		sort.SliceStable(items, func(i, j int) bool {
 			left, right := items[i].UnitID, items[j].UnitID
