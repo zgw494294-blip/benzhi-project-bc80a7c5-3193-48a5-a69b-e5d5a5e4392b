@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -42,37 +43,49 @@ func (s *Service) BatchDetail(ctx context.Context, id string) (BatchDetail, erro
 	return s.BatchDetailFiltered(ctx, id, BatchDetailFilter{})
 }
 func (s *Service) BatchDetailFiltered(ctx context.Context, id string, filter BatchDetailFilter) (BatchDetail, error) {
-	aggregate, err := s.repo.Load(ctx, id)
-	if err != nil {
-		return BatchDetail{}, err
-	}
-	events, err := s.repo.Events(ctx, id)
-	if err != nil {
-		return BatchDetail{}, err
-	}
-	progress, err := aggregate.Progress(filter.Progress)
-	if err != nil {
-		return BatchDetail{}, err
-	}
-	queue, err := aggregate.RemediationQueue(filter.RemediationOwner, filter.RemediationStatus, filter.DueRisk, s.clock.Now())
-	if err != nil {
-		return BatchDetail{}, err
-	}
-	detail := BatchDetail{
-		Aggregate: aggregate, Matrix: progress.Matrix, Blocking: aggregate.BlockingCells(), Timeline: events,
-		Coverage: aggregate.Coverage(), Histories: aggregate.Histories(),
-		TimelineVerification: audit.VerifyTimeline(id, events, aggregate.Batch.Revision),
-		Progress:             progress, RemediationQueue: queue,
-	}
-	if aggregate.Permit != nil {
-		permits, err := s.repo.Permits(ctx)
-		if err != nil {
-			return BatchDetail{}, err
+	var detail BatchDetail
+	err := s.serial.execute(id, func() error {
+		if cached, ok := s.detail.Load(id); ok {
+			return json.Unmarshal(cached.([]byte), &detail)
 		}
-		verification := audit.VerifyAggregatePermit(aggregate, permits)
-		detail.PermitVerification = &verification
-	}
-	return detail, nil
+		aggregate, err := s.repo.Load(ctx, id)
+		if err != nil {
+			return err
+		}
+		events, err := s.repo.Events(ctx, id)
+		if err != nil {
+			return err
+		}
+		progress, err := aggregate.Progress(filter.Progress)
+		if err != nil {
+			return err
+		}
+		queue, err := aggregate.RemediationQueue(filter.RemediationOwner, filter.RemediationStatus, filter.DueRisk, s.clock.Now())
+		if err != nil {
+			return err
+		}
+		detail = BatchDetail{
+			Aggregate: aggregate, Matrix: progress.Matrix, Blocking: aggregate.BlockingCells(), Timeline: events,
+			Coverage: aggregate.Coverage(), Histories: aggregate.Histories(),
+			TimelineVerification: audit.VerifyTimeline(id, events, aggregate.Batch.Revision),
+			Progress:             progress, RemediationQueue: queue,
+		}
+		if aggregate.Permit != nil {
+			permits, err := s.repo.Permits(ctx)
+			if err != nil {
+				return err
+			}
+			verification := audit.VerifyAggregatePermit(aggregate, permits)
+			detail.PermitVerification = &verification
+		}
+		encoded, err := json.Marshal(detail)
+		if err != nil {
+			return err
+		}
+		s.detail.Store(id, encoded)
+		return nil
+	})
+	return detail, err
 }
 
 func (s *Service) PreflightPlan(ctx context.Context, batchID string, definitions []domain.CheckDefinition) (domain.PlanPreflight, error) {

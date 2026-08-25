@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,7 @@ type Service struct {
 	clock  Clock
 	serial batchSerial
 	ids    atomic.Uint64
+	detail sync.Map
 }
 
 func NewService(repo Repository) *Service { return &Service{repo: repo, clock: systemClock{}} }
@@ -123,7 +125,11 @@ func (s *Service) mutate(ctx context.Context, meta Meta, action string, fn mutat
 		if aggregate.Permit != nil && action == "batch.approved" {
 			commit.NewPermit = aggregate.Permit
 		}
-		return s.repo.Commit(ctx, commit)
+		if err := s.repo.Commit(ctx, commit); err != nil {
+			return err
+		}
+		s.detail.Delete(meta.BatchID)
+		return nil
 	})
 	return output, err
 }
@@ -251,7 +257,11 @@ func (s *Service) RecordResults(ctx context.Context, command RecordResultsComman
 		if err != nil {
 			return err
 		}
-		return s.repo.Commit(ctx, Commit{Aggregate: a, ExpectedRev: expected, Event: event, IdempotencyKey: command.IdempotencyKey, Response: encoded})
+		if err := s.repo.Commit(ctx, Commit{Aggregate: a, ExpectedRev: expected, Event: event, IdempotencyKey: command.IdempotencyKey, Response: encoded}); err != nil {
+			return err
+		}
+		s.detail.Delete(command.BatchID)
+		return nil
 	})
 	return output, err
 }
