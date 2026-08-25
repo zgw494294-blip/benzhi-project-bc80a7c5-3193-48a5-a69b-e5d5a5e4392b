@@ -1,8 +1,11 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -35,6 +38,19 @@ type TargetedPermitView struct {
 	Timeline     []audit.Event                    `json:"timeline,omitempty"`
 }
 
+func compactTimelineFacts(events []audit.Event) error {
+	for i := range events {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, events[i].FactSummary); err != nil {
+			return fmt.Errorf("规范化审计事件 %s: %w", events[i].ID, err)
+		}
+		normalized := compact.Bytes()
+		copy(events[i].FactSummary, normalized)
+		events[i].FactSummary = events[i].FactSummary[:len(normalized)]
+	}
+	return nil
+}
+
 func (s *Service) ListBatches(ctx context.Context) ([]domain.InspectionBatch, error) {
 	return s.repo.List(ctx)
 }
@@ -48,6 +64,9 @@ func (s *Service) BatchDetailFiltered(ctx context.Context, id string, filter Bat
 	}
 	events, err := s.repo.Events(ctx, id)
 	if err != nil {
+		return BatchDetail{}, err
+	}
+	if err := compactTimelineFacts(events); err != nil {
 		return BatchDetail{}, err
 	}
 	progress, err := aggregate.Progress(filter.Progress)
