@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,10 +19,24 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	repo   Repository
-	clock  Clock
-	serial batchSerial
-	ids    atomic.Uint64
+	repo       Repository
+	clock      Clock
+	serial     batchSerial
+	ids        atomic.Uint64
+	replayMu   sync.Mutex
+	replayWork map[replayKey]*replayCall
+}
+
+type replayKey struct {
+	batchID string
+	key     string
+}
+
+type replayCall struct {
+	done chan struct{}
+	data []byte
+	ok   bool
+	err  error
 }
 
 func NewService(repo Repository) *Service { return &Service{repo: repo, clock: systemClock{}} }
@@ -49,7 +64,33 @@ func validateMeta(meta Meta) error {
 }
 
 func (s *Service) replay(ctx context.Context, batchID, key string) (*CommandResult, bool, error) {
-	data, ok, err := s.repo.IdempotentResponse(ctx, batchID, key)
+	lookup := replayKey{batchID: batchID, key: key}
+	s.replayMu.Lock()
+	if call := s.replayWork[lookup]; call != nil {
+		s.replayMu.Unlock()
+		select {
+		case <-call.done:
+			return decodeReplay(call.data, call.ok, call.err)
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		}
+	}
+	if s.replayWork == nil {
+		s.replayWork = make(map[replayKey]*replayCall)
+	}
+	call := &replayCall{done: make(chan struct{})}
+	s.replayWork[lookup] = call
+	s.replayMu.Unlock()
+
+	call.data, call.ok, call.err = s.repo.IdempotentResponse(ctx, batchID, key)
+	close(call.done)
+	s.replayMu.Lock()
+	delete(s.replayWork, lookup)
+	s.replayMu.Unlock()
+	return decodeReplay(call.data, call.ok, call.err)
+}
+
+func decodeReplay(data []byte, ok bool, err error) (*CommandResult, bool, error) {
 	if err != nil || !ok {
 		return nil, ok, err
 	}
