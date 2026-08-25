@@ -18,7 +18,7 @@ func encodeAggregate(aggregate *domain.Aggregate) (json.RawMessage, error) {
 	return data, nil
 }
 
-func (s *Store) Create(_ context.Context, aggregate *domain.Aggregate, event audit.Event, key string, response []byte) error {
+func (s *Store) Create(ctx context.Context, aggregate *domain.Aggregate, event audit.Event, key string, response []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -44,11 +44,14 @@ func (s *Store) Create(_ context.Context, aggregate *domain.Aggregate, event aud
 	if err := s.persist(next); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("创建批次事务已取消: %w", err)
+	}
 	s.db = next
 	return nil
 }
 
-func (s *Store) Commit(_ context.Context, commit application.Commit) error {
+func (s *Store) Commit(ctx context.Context, commit application.Commit) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -102,6 +105,9 @@ func (s *Store) Commit(_ context.Context, commit application.Commit) error {
 	}
 	if err := s.persist(next); err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("更新批次事务已取消: %w", err)
 	}
 	s.db = next
 	return nil
