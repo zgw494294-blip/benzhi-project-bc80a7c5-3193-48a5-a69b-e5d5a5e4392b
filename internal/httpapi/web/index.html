@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>舞台布景阻燃准用工作台</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><span class="eyebrow">SCENIC SAFETY CONTROL</span><h1>舞台布景阻燃准用工作台</h1></div>
+    <div class="health"><i></i> 本地服务正常</div>
+  </header>
+  <main>
+    <aside class="sidebar">
+      <div class="side-title"><span>检查批次</span><button id="new-batch" class="icon-button" title="新建批次">＋</button></div>
+      <div id="batch-list" class="batch-list"></div>
+      <button id="verify-chain" class="quiet full">核验全部凭据链</button>
+      <p id="chain-result" class="mini"></p>
+    </aside>
+    <section class="workspace">
+      <div id="empty-state" class="empty-state">
+        <div class="seal">FR</div><h2>从建立检查批次开始</h2>
+        <p>登记舞台布景与阻燃来源，锁定检查方案，完成逐项检查和整改复测后签发准用凭据。</p>
+        <button class="primary" data-action="new-batch">创建首个批次</button>
+      </div>
+      <div id="batch-view" class="hidden">
+        <div class="batch-head">
+          <div><span id="batch-state" class="state"></span><h2 id="batch-title"></h2><p id="batch-meta"></p></div>
+          <div><button id="edit-batch" class="quiet">编辑批次</button> <span class="revision">当前修订 <strong id="revision"></strong></span></div>
+        </div>
+        <nav class="steps" aria-label="业务阶段">
+          <button data-tab="register">01 登记</button><button data-tab="inspect">02 检查</button><button data-tab="remediate">03 整改</button><button data-tab="permit">04 准用</button>
+        </nav>
+        <section id="register" class="panel tab-panel">
+          <div class="section-head"><div><span class="kicker">REGISTER</span><h3>布景登记与检查方案</h3></div><button id="show-unit" class="secondary">登记布景单元</button></div>
+          <div id="unit-cards" class="cards"></div>
+          <form id="unit-form" class="form-card hidden">
+            <h4 id="unit-form-title">新增布景单元</h4><input type="hidden" name="unitId"><div class="form-grid">
+              <label>单元编号<input name="unitCode" required placeholder="SC-001"></label><label>布景名称<input name="name" required></label>
+              <label>使用区域<input name="stageZone" required placeholder="主舞台左区"></label><label>材料类别<input name="materialClass" required placeholder="阻燃织物 / 木质"></label>
+              <label>供应来源<input name="supplier" required></label><label>阻燃处理批次<input name="treatmentLot" required></label>
+              <label class="wide">完整证据列表（每行：名称 | 摘要）<textarea name="evidenceList" required placeholder="阻燃处理单 | archive-digest-001"></textarea></label>
+            </div><div class="actions"><button type="button" class="quiet" data-action="cancel-unit">取消</button><button class="primary">保存登记</button></div>
+          </form>
+          <form id="plan-form" class="form-card plan-form">
+            <h4>送检并冻结方案</h4><p>送检时将按当前全部布景生成稳定清单，基础登记信息随后不可修改。</p>
+            <div id="definition-list"></div><button type="button" id="add-definition" class="quiet">＋ 添加必检项</button>
+            <label class="single">方案创建人<input name="actor" required value="制作协调员"></label>
+            <div class="actions"><button type="button" id="preflight-plan" class="secondary">预检覆盖</button><button id="submit-plan" class="primary warning" disabled>确认方案并送检</button></div>
+            <div id="preflight-result" class="preflight mini">请先预检当前布景与方案覆盖。</div>
+          </form>
+        </section>
+        <section id="inspect" class="panel tab-panel hidden">
+          <div class="section-head"><div><span class="kicker">INSPECTION MATRIX</span><h3>阻燃检查矩阵</h3></div><span id="matrix-summary" class="summary"></span></div>
+          <form id="progress-filter" class="filter-bar"><input name="stageZone" placeholder="使用区域"><input name="materialClass" placeholder="材料类别"><input name="checkCode" placeholder="检查编号"><input name="inspector" placeholder="最新检查人"><select name="status"><option value="">全部状态</option><option value="blocking">阻断</option><option value="pending">待检</option><option value="pass">合格</option><option value="fail">不合格</option></select><button class="quiet">筛选</button></form>
+          <div id="progress-groups" class="progress-groups"></div><div class="bulk-bar"><button id="batch-record" class="secondary" type="button">批量录入已选</button></div>
+          <div class="table-wrap"><table><thead><tr><th>选择</th><th>布景单元</th><th>检查项目</th><th>最新结论</th><th>尝试</th><th>检查人</th><th>操作</th></tr></thead><tbody id="matrix-body"></tbody></table></div>
+        </section>
+        <section id="remediate" class="panel tab-panel hidden">
+          <div class="section-head"><div><span class="kicker">REMEDIATION</span><h3>缺陷整改队列</h3></div></div><form id="remediation-filter" class="filter-bar"><input name="remediationOwner" placeholder="责任人"><select name="remediationStatus"><option value="">全部状态</option><option value="open">待整改</option><option value="completed">待复测</option><option value="closed">已闭环</option></select><select name="dueRisk"><option value="">全部期限风险</option><option value="overdue">逾期</option><option value="due_soon">临期</option><option value="normal">正常</option></select><button class="quiet">筛选</button></form><div id="remediation-list" class="queue"></div>
+        </section>
+        <section id="permit" class="panel tab-panel hidden">
+          <div class="section-head"><div><span class="kicker">ADMISSION PERMIT</span><h3>安全批准与准用凭据</h3></div></div>
+          <div id="approval-box" class="approval-box"></div><div id="permit-card"></div><form id="permit-lookup" class="filter-bar"><input name="sequence" type="number" min="1" placeholder="完整凭据序号"><input name="permitDigest" placeholder="或完整 permitDigest"><button class="secondary">定点核验</button></form><div id="permit-lookup-result"></div>
+          <h4>完整审计时间线</h4><div id="timeline" class="timeline"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <dialog id="batch-dialog"><form id="batch-form" method="dialog"><div class="dialog-head"><div><span class="kicker">NEW INSPECTION</span><h3>创建阻燃检查批次</h3></div><button value="cancel" class="icon-button">×</button></div>
+    <div class="form-grid"><label>批次 ID<input name="id" required placeholder="batch-2026-001"></label><label>批次名称<input name="title" required></label><label>场地<input name="venue" required></label><label>计划上台时间<input name="performanceAt" type="datetime-local" required></label><label>制作协调员<input name="coordinator" required></label><label>操作主体<input name="actor" required value="制作协调员"></label></div>
+    <div class="actions"><button value="cancel" class="quiet">取消</button><button id="create-batch" value="default" class="primary">建立批次</button></div></form></dialog>
+  <dialog id="result-dialog"><form id="result-form" method="dialog"><div class="dialog-head"><h3>记录检查结论</h3><button value="cancel" class="icon-button">×</button></div><input type="hidden" name="unitId"><input type="hidden" name="checkCode"><div class="form-grid"><label>结论<select name="outcome"><option value="pass">合格</option><option value="fail">不合格</option></select></label><label>测量值<input name="measuredValue" required></label><label>证据摘要<input name="evidenceDigest" required></label><label>检查人<input name="inspector" required value="阻燃检查员"></label></div><div class="actions"><button value="cancel" class="quiet">取消</button><button value="default" class="primary">提交结果</button></div></form></dialog>
+  <div id="toast" role="status"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
