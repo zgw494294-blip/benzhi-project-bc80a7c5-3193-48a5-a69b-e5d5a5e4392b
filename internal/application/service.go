@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,10 +19,13 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	repo   Repository
-	clock  Clock
-	serial batchSerial
-	ids    atomic.Uint64
+	repo         Repository
+	clock        Clock
+	serial       batchSerial
+	ids          atomic.Uint64
+	permitMu     sync.Mutex
+	permitChain  []domain.AdmissionPermit
+	permitLoaded bool
 }
 
 func NewService(repo Repository) *Service { return &Service{repo: repo, clock: systemClock{}} }
@@ -59,6 +63,21 @@ func (s *Service) replay(ctx context.Context, batchID, key string) (*CommandResu
 	}
 	result.Replay = true
 	return &result, true, nil
+}
+
+func (s *Service) permitSnapshot(ctx context.Context) ([]domain.AdmissionPermit, error) {
+	s.permitMu.Lock()
+	defer s.permitMu.Unlock()
+	if s.permitLoaded {
+		return append([]domain.AdmissionPermit(nil), s.permitChain...), nil
+	}
+	permits, err := s.repo.Permits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.permitChain = append([]domain.AdmissionPermit(nil), permits...)
+	s.permitLoaded = true
+	return append([]domain.AdmissionPermit(nil), s.permitChain...), nil
 }
 
 func (s *Service) CreateBatch(ctx context.Context, command CreateBatchCommand) (CommandResult, error) {
@@ -300,7 +319,7 @@ func (s *Service) Approve(ctx context.Context, command ApproveCommand) (CommandR
 		if err != nil {
 			return "", nil, err
 		}
-		permits, err := s.repo.Permits(ctx)
+		permits, err := s.permitSnapshot(ctx)
 		if err != nil {
 			return "", nil, err
 		}
