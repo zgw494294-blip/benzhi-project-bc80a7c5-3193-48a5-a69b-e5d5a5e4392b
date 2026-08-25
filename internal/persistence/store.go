@@ -16,17 +16,18 @@ import (
 )
 
 type Store struct {
-	mu     sync.RWMutex
-	path   string
-	db     database
-	closed bool
+	mu          sync.RWMutex
+	path        string
+	db          database
+	projections map[string]*domain.Aggregate
+	closed      bool
 }
 
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("持久化文件路径不能为空")
 	}
-	store := &Store{path: path}
+	store := &Store{path: path, projections: make(map[string]*domain.Aggregate)}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		store.db = emptyDatabase()
@@ -50,8 +51,11 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { s.mu.Lock(); defer s.mu.Unlock(); s.closed = true; return nil }
 
 func (s *Store) Load(_ context.Context, id string) (*domain.Aggregate, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if aggregate, ok := s.projections[id]; ok {
+		return aggregate, nil
+	}
 	raw, ok := s.db.Batches[id]
 	if !ok {
 		return nil, domain.NotFound("batch", id)
@@ -60,6 +64,7 @@ func (s *Store) Load(_ context.Context, id string) (*domain.Aggregate, error) {
 	if err := json.Unmarshal(raw, &aggregate); err != nil {
 		return nil, fmt.Errorf("批次投影损坏: %w", err)
 	}
+	s.projections[id] = &aggregate
 	return &aggregate, nil
 }
 

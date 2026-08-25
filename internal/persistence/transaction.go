@@ -45,6 +45,7 @@ func (s *Store) Create(_ context.Context, aggregate *domain.Aggregate, event aud
 		return err
 	}
 	s.db = next
+	delete(s.projections, aggregate.Batch.ID)
 	return nil
 }
 
@@ -104,5 +105,6 @@ func (s *Store) Commit(_ context.Context, commit application.Commit) error {
 		return err
 	}
 	s.db = next
+	delete(s.projections, batchID)
 	return nil
 }
